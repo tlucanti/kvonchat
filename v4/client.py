@@ -4,14 +4,11 @@
 """
 distributed_chat.py
 
-A minimal, lock‑free, distributed chat client that stores its
-complete history in a Kademlia DHT.
+A lock‑free, distributed chat client that stores the whole chat history
+in a Kademlia DHT.  Peer‑discovery is omitted – you supply bootstrap nodes
+via the command line.
 
-Run several copies on different machines (or on the same host with
-different ports).  Supply the list of bootstrap nodes that are already
-alive – *peer discovery is left to the operator*.
-
-Author: ChatGPT (2026‑03‑27)
+Requires:  pip install kademlia==0.2.1
 """
 
 import sys
@@ -27,47 +24,40 @@ from typing import List, Tuple, Dict, Any
 # ----------------------------------------------------------------------
 from kademlia.network import Server  # asyncio‑based Kademlia implementation
 
+loglevel = logging.ERROR
+
 
 LOGGER = logging.getLogger("distributed_chat")
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(loglevel)
 
 # ----------------------------------------------------------------------
-# 2️⃣  Helper functions for the DHT key schema
+# 2️⃣  DHT key schema helpers
 # ----------------------------------------------------------------------
-HEAD_KEY = "chat:head"          # stores the highest sequence number (int)
-MSG_PREFIX = "msg:"            # each message is stored under msg:<seq>
+HEAD_KEY = "chat:head"          # stores the latest sequence number (int)
+MSG_PREFIX = "msg:"            # each chat line is stored under msg:<seq>
+
 
 def msg_key(seq: int) -> str:
-    """Return the DHT key for a given message sequence number."""
+    """DHT key for a given message sequence number."""
     return f"{MSG_PREFIX}{seq}"
 
 
 def encode_message(seq: int, author: str, ts: str, text: str) -> bytes:
-    """Serialize a chat message to a JSON‑encoded bytes object."""
-    payload = {
-        "seq": seq,
-        "author": author,
-        "ts": ts,
-        "text": text,
-    }
+    """Serialize a chat message to JSON‑encoded bytes."""
+    payload = {"seq": seq, "author": author, "ts": ts, "text": text}
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
 def decode_message(raw: bytes) -> Dict[str, Any]:
-    """Deserialize a message stored in the DHT."""
+    """Deserialize a message retrieved from the DHT."""
     return json.loads(raw.decode("utf-8"))
 
 
 # ----------------------------------------------------------------------
-# 3️⃣  The main Chat client class
+# 3️⃣  Chat client implementation
 # ----------------------------------------------------------------------
 class ChatClient:
-    """
-    A single chat participant.
-    * Runs a Kademlia node.
-    * Provides `send_message` and `fetch_history` APIs.
-    * All operations are async and lock‑free.
-    """
+    """Single chat participant that talks to a Kademlia DHT."""
 
     def __init__(
         self,
@@ -79,16 +69,19 @@ class ChatClient:
         self.listen_port = listen_port
         self.bootstrap_nodes = bootstrap_nodes
         self.nickname = nickname
-        self.replication_k = replication_k
 
-        self.server = Server(storage=None, protocol=None, k=replication_k)
-        # `storage=None` tells kademlia to use its default in‑memory storage.
+        # ------------------------------------------------------------------
+        # NOTE:  The current kademlia.Server signature is:
+        #   Server(ksize=20, alpha=3, node_id=None, storage=None)
+        # `ksize` is the replication factor (the “k” from the paper).
+        # ------------------------------------------------------------------
+        self.server = Server(ksize=replication_k, storage=None)
 
     # ------------------------------------------------------------------
-    # 3.1️⃣  Startup / shutdown helpers
+    # 3.1️⃣  Lifecycle helpers
     # ------------------------------------------------------------------
     async def start(self) -> None:
-        """Start the local Kademlia server and join the network."""
+        """Start listening and bootstrap to known peers."""
         await self.server.listen(self.listen_port)
         LOGGER.info("Node listening on %s:%d", *self._my_address())
         if self.bootstrap_nodes:
@@ -98,71 +91,48 @@ class ChatClient:
     async def stop(self) -> None:
         """Graceful shutdown."""
         self.server.stop()
-        await asyncio.sleep(0)   # let the event loop run any pending callbacks
+        await asyncio.sleep(0)   # let pending callbacks run
 
     def _my_address(self) -> Tuple[str, int]:
-        """Return our own (host, port) tuple – used for logging."""
-        # The Server class always binds to 0.0.0.0; we use localhost for display.
+        """Return a printable (host, port) pair."""
         return ("127.0.0.1", self.listen_port)
 
     # ------------------------------------------------------------------
-    # 3.2️⃣  Core DHT operations
+    # 3.2️⃣  Raw DHT operations
     # ------------------------------------------------------------------
     async def _get_head(self) -> int:
-        """Fetch the current head (largest sequence number)."""
+        """Return the current highest sequence number (0 if none)."""
         head = await self.server.get(HEAD_KEY)
-        if head is None:
-            return 0
-        # head is stored as an int (kademlia serialises numbers as JSON)
-        return int(head)
+        return int(head) if head is not None else 0
 
     async def _set_head(self, new_head: int) -> None:
-        """Store a new head value."""
+        """Persist a new head value."""
         await self.server.set(HEAD_KEY, new_head)
 
     async def _store_message(self, seq: int, text: str) -> None:
-        """Persist a single chat line under msg:<seq>."""
+        """Store a single chat line under `msg:<seq>`."""
         ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
         raw = encode_message(seq, self.nickname, ts, text)
         await self.server.set(msg_key(seq), raw)
 
     async def _fetch_message(self, seq: int) -> Dict[str, Any] | None:
-        """Retrieve a stored message; returns None if it is missing."""
+        """Retrieve a stored message; returns ``None`` if absent."""
         raw = await self.server.get(msg_key(seq))
-        if raw is None:
-            return None
-        return decode_message(raw)
+        return decode_message(raw) if raw is not None else None
 
     # ------------------------------------------------------------------
     # 3.3️⃣  Public API
     # ------------------------------------------------------------------
     async def send_message(self, text: str) -> None:
-        """
-        Append `text` to the chat.
-        This is deliberately *optimistic*: we read the head, add 1, write,
-        and finally write back the new head.  If two peers race, the
-        larger sequence wins – the other will later notice the gap and
-        re‑publish its missing entry (the next call to `fetch_history`
-        will pull it).
-        """
-        # 1️⃣ read current head
+        """Append a line to the chat (optimistic, no CAS)."""
         head = await self._get_head()
         new_seq = head + 1
-
-        # 2️⃣ store the message
         await self._store_message(new_seq, text)
-
-        # 3️⃣ publish the new head (no CAS – eventual consistency is fine)
         await self._set_head(new_seq)
-
         LOGGER.info("Sent message #%d", new_seq)
 
     async def fetch_history(self) -> List[Dict[str, Any]]:
-        """
-        Pull the whole conversation up to the current head.
-        Missing entries are ignored – they will be filled in later when
-        the responsible peer re‑publishes them.
-        """
+        """Pull the entire conversation up to the current head."""
         head = await self._get_head()
         if head == 0:
             return []
@@ -176,30 +146,23 @@ class ChatClient:
                 LOGGER.warning("Error fetching %s: %s", msg_key(seq), res)
                 continue
             if res is None:
-                # The entry is currently missing; we keep a placeholder.
-                LOGGER.debug("Message %d not found yet (will appear later)", seq)
+                LOGGER.debug("Message %d missing (will appear later)", seq)
                 continue
             history.append(res)
-        # Sort just in case we received out‑of‑order data.
+
         history.sort(key=lambda m: m["seq"])
         return history
 
-    # ------------------------------------------------------------------
-    # 3.4️⃣  Convenience method for pretty‑printing a history list.
-    # ------------------------------------------------------------------
     @staticmethod
     def format_message(msg: Dict[str, Any]) -> str:
-        ts = msg["ts"]
-        author = msg["author"]
-        text = msg["text"]
-        return f"[{ts}] {author}: {text}"
+        return f"[{msg['ts']}] {msg['author']}: {msg['text']}"
 
 
 # ----------------------------------------------------------------------
 # 4️⃣  Command‑line interface
 # ----------------------------------------------------------------------
 async def ainput(prompt: str = "") -> str:
-    """Asynchronous version of `input()` for asyncio event loops."""
+    """Async wrapper around built‑in ``input``."""
     return await asyncio.get_event_loop().run_in_executor(
         None, lambda: input(prompt)
     )
@@ -207,28 +170,25 @@ async def ainput(prompt: str = "") -> str:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Distributed chat client that stores history in a Kademlia DHT."
+        description="Distributed chat client using a Kademlia DHT."
     )
     parser.add_argument(
         "--port",
         type=int,
         required=True,
-        help="Local TCP/UDP port on which this node will listen (e.g. 8468).",
+        help="Local port for this node (e.g. 8468).",
     )
     parser.add_argument(
         "--bootstrap",
         nargs="*",
         default=[],
         metavar="HOST:PORT",
-        help=(
-            "One or more existing nodes to bootstrap from, formatted as host:port. "
-            "If omitted the node starts a brand‑new network."
-        ),
+        help="Existing nodes to bootstrap from (host:port).",
     )
     parser.add_argument(
         "--nick",
         required=True,
-        help="Your nickname that will appear in the chat.",
+        help="Your nickname shown in the chat.",
     )
     parser.add_argument(
         "--replication",
@@ -238,8 +198,8 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    # Parse bootstrap arguments
-    bootstrap_nodes = []
+    # Parse bootstrap specifications
+    bootstrap_nodes: List[Tuple[str, int]] = []
     for spec in args.bootstrap:
         try:
             host, port_str = spec.split(":")
@@ -255,30 +215,26 @@ async def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 4.1️⃣  Start node and fetch initial history
+    # Start node and show existing history
     # ------------------------------------------------------------------
     await client.start()
     print("\n=== Welcome to the distributed chat! ===")
     print("Fetching existing history…")
-    history = await client.fetch_history()
-    for msg in history:
+    for msg in await client.fetch_history():
         print(ChatClient.format_message(msg))
+
     print("\nYou can now start typing.  Press Ctrl‑C to quit.\n")
 
     # ------------------------------------------------------------------
-    # 4.2️⃣  Main interaction loop (read from stdin, broadcast via DHT)
+    # Main REPL loop
     # ------------------------------------------------------------------
     try:
         while True:
-            line = await ainput()
-            line = line.strip()
+            line = (await ainput()).strip()
             if not line:
                 continue
             await client.send_message(line)
 
-            # Optimistically re‑print what we just sent (may be out of order)
-            # This gives instant feedback and mirrors what other peers will see.
-            # The full history can be refreshed on demand with /history.
             now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
             print(f"[{now}] {args.nick}: {line}")
 
@@ -289,10 +245,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Enable modest console logging (helps during debugging)
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        level=logging.INFO,
+        level=loglevel,
     )
     try:
         asyncio.run(main())
