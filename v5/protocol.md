@@ -102,6 +102,7 @@
 --------------------------------------------------------------------------------
 
 class Peer:
+ - name: str
  - address: [ip, port]
  - keyRange: [hash, hash]
  - localPeers: set[Peer]
@@ -126,10 +127,10 @@ reply: WELCOME
 WELCOME prompt:
  - TYPE: enum: prompt type
  - KEYRANGE: hash, hash: prompt sender's range of keys
- - PEERCOUNT: int: number of local peers in prompt
+ - COUNT: int: number of local peers in prompt
  - PEER+: str, int: peer ip, peer port
- - NEXTCOUNT: int: number of next peers in prompt
- - NEXT+: str, int: next peer ip, next peer port
+ - COUNT: int: number of next peers in prompt
+ - PEER+: str, int: next peer ip, next peer port
 reply: None
 
 NEWBORN prompt:
@@ -148,6 +149,11 @@ PONG prompt:
  - KEYRANGE: hash, hash: range of keys
 reply: None
 
+LEFT prompt:
+ - TYPE: enum: prompt type
+ - KEYRANGE: hash, hash: range of keys
+ - PEER: str, int: peer ip, peer port
+
 GETPEERS prompt:
  - TYPE: enum: prompt type
 reply: PEERS
@@ -155,9 +161,10 @@ reply: PEERS
 PEERS prompt:
  - TYPE: enum: prompt type
  - KEYRANGE: hash, hash: range of keys
- - COUNT: int: number of local peers in prompt
+ - PEERCOUNT: int: number of local peers in prompt
  - PEER+: str, int: peer ip, peer port
 reply: None
+
 
 ## borrow-merge prompts
 
@@ -169,14 +176,10 @@ reply: WELCOME
 BORROWREQUEST prompt:
  - TYPE: enum prompt type
  - KEYRANGE: hash, hash: range of keys of prompt sender
- - COUNT: int: number of local peers in prompt
+ - PEERCOUNT: int: number of local peers in prompt
  - PEER+: str, int: peer ip, peer port
 reply: None
 
-LEFT prompt:
- - TYPE: enum: prompt type
- - KEYRANGE: hash, hash: range of keys
- - PEER: str, int: peer ip, peer port
 
 
 -------------------------------------------------------------------------------
