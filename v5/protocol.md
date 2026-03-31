@@ -161,7 +161,7 @@ reply: PEERS
 PEERS prompt:
  - TYPE: enum: prompt type
  - KEYRANGE: hash, hash: range of keys
- - PEERCOUNT: int: number of local peers in prompt
+ - COUNT: int: number of local peers in prompt
  - PEER+: str, int: peer ip, peer port
 reply: None
 
@@ -176,7 +176,7 @@ reply: WELCOME
 BORROWREQUEST prompt:
  - TYPE: enum prompt type
  - KEYRANGE: hash, hash: range of keys of prompt sender
- - PEERCOUNT: int: number of local peers in prompt
+ - COUNT: int: number of local peers in prompt
  - PEER+: str, int: peer ip, peer port
 reply: None
 

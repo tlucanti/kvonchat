@@ -11,24 +11,6 @@ class KeyRange:
         self.begin = begin
         self.end = end
 
-@final
-class PromptTypes(IntEnum):
-    # registration prompts
-    REGISTER = 0
-    WELCOME  = 1
-    NEWBORN  = 2
-
-    # keepalive prompts
-    PING     = 50
-    PONG     = 51
-    LEFT     = 52
-    GETPEERS = 53
-    PEERS    = 54
-
-    # borrow-merge prompts
-    MERGEREQUEST = 100
-    BORROWREQUST = 101
-
 
 class PromptField(ABC):
     def __init__(self, value: str):
@@ -47,8 +29,8 @@ class NAME(PromptField):
 
 @final
 class KEYRANGE(PromptField):
-    def __init__(self, keyRange: KeyRange):
-        super().__init__(f'{keyRange.begin} {keyRange.end}')
+    def __init__(self, begin: int, end: int):
+        super().__init__(f'{begin} {end}')
 
 @final
 class COUNT(PromptField):
