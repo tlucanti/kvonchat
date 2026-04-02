@@ -1,9 +1,29 @@
 
 from abc import ABC
-from enum import IntEnum
+from enum import Enum
 from typing import final
 
-from Address import Address
+from Server import Address
+
+
+@final
+class PromptTypes(Enum):
+    # registration prompts
+    REGISTER = "REGISTER"
+    WELCOME  = "WELCOME"
+    NEWBORN  = "NEWBORN"
+
+    # keepalive prompts
+    PING     = "PING"
+    PONG     = "PONG"
+    LEFT     = "LEFT"
+    GETPEERS = "GETPEERS"
+    PEERS    = "PEERS"
+
+    # borrow-merge prompts
+    MERGEREQUEST = "MERGEREQUEST"
+    BORROWREQUST = "BORROWREQUST"
+
 
 @final
 class KeyRange:
@@ -20,7 +40,7 @@ class PromptField(ABC):
 @final
 class TYPE(PromptField):
     def __init__(self, type: PromptTypes):
-        super().__init__(str(type))
+        super().__init__(str(type.value))
 
 @final
 class NAME(PromptField):

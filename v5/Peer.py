@@ -3,37 +3,39 @@ from __future__ import annotations
 
 from typing import final
 
-from Address import Address
-from Prompt import Prompt, Register, Welcome
+from Server import Address, Server
+from Prompt import Prompt, REGISTER, WELCOME
+from PromptField import KeyRange
 
+PromptClass = type[Prompt]
 
 @final
 class Peer:
 
-    def __init__(self, name: str, address: Address):
+    def __init__(self, server: Server, name: str):
+        self.server = server
         self.name = name
-        self.address = address
-        self.keyRange: Peer.KeyRange = Peer.KeyRange(0, 0)
+        self.keyRange: KeyRange = KeyRange(0, 0)
         self.localPeers: set[Address] = set()
         self.nextPeers: set[Address] = set()
         self.dataStorage: dict[str, str] = dict()
 
-    def _send_prompt_return(self, address: Address, prompt: Prompt) -> Prompt:
-        pass
-
     def register(self, bootstrap: list[Address]):
-        reg = Register(
-            Prompt.Name(self.name),
-        )
+        retry = 0
 
-        for bs in bootstrap:
-            try:
-                welcome = self._send_prompt_return(bs, reg)
-                if isinstance(welcome, Welcome):
-                    break
-            except TimeoutError:
-                continue
-        else:
+        if len(bootstrap) == 0:
+            while True:
+                msg, addr = self.server.recv_udp()
+
+        while True:
+            address = bootstrap.pop()
+            reg = REGISTER(name=self.name)
+            address.send_udp(reg.serialize())
+
+            msg, addr = self.server.recv_udp()
+            print(msg, addr)
+            break
+
             raise RuntimeError("can not connect to any of bootstrap peers")
 
 
