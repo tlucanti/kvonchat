@@ -24,10 +24,12 @@ def main():
 
     if args.bootstrap:
         addresses = [Address.from_str(a) for a in args.bootstrap.split(',')]
-        peer.register(addresses)
-    else:
-        peer.bootstrap()
+        if peer.register(addresses):
+            return 1
+
+    peer.run()
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    sys.exit(main())

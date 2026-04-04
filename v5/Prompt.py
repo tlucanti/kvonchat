@@ -1,176 +1,88 @@
 from __future__ import annotations
 
-from typing import final
-from abc import ABC
-from enum import IntEnum
-from collections.abc import Iterable
+import ast
+from typing import final, override
+from collections import OrderedDict
 
-from PromptField import PromptField, TYPE, NAME, KEYRANGE, COUNT, PEER
-from PromptField import KeyRange, PromptTypes
 from Server import Address
 
 
-class Prompt(ABC):
-    fields: Iterable[type]
-    prompt_type: PromptTypes
+PromptFields = OrderedDict[str, str]
 
-    def __init__(self, **kwargs: str):
-        self.payload: list[PromptField] = []
 
-        for field in self.fields:
-            if field == TYPE:
-                self.payload.append(TYPE(self.prompt_type))
+@final
+class KeyRange:
+    def __init__(self, begin: int, end: int):
+        self.begin = begin
+        self.end = end
 
-            elif field == NAME:
-                assert isinstance(kwargs['name'], str)
-                name = str(kwargs['name'])
-                assert isinstance(name, str)
-                self.payload.append(NAME(name))
-                self.name: str = name
 
-            elif field == KEYRANGE:
-                assert isinstance(kwargs['keyRange'], KeyRange)
-                begin = int(kwargs['keyRange'].begin)
-                end = int(kwargs['keyRange'].end)
-                self.payload.append(KEYRANGE(begin, end))
-                self.keyRange: KeyRange = KeyRange(begin, end)
+@final
+class Prompt:
+    field_table: dict[str, list[str]] = {
+        "REGISTER": ["TYPE", "NAME"],
+    }
 
-            elif field == COUNT:
-                assert isinstance(kwargs['count'], int)
-                count = int(kwargs['count'])
-                self.payload.append(COUNT(count))
-                self.count: int = count
+    def __init__(self, fields: PromptFields):
+        self._validate_order(fields)
+        self.fields = fields
 
-            elif field == list[PEER]:
-                assert isinstance(kwargs['peers'], list)
-                peers: list[Address] = kwargs['peers']
-                for peer in peers:
-                    assert isinstance(peer, Address)
-                    self.payload.append(PEER(peer))
 
-            elif field == PEER:
-                assert isinstance(kwargs['peer'], Address)
-                peer: Address = kwargs['peer']
-                self.payload.append(PEER(peer))
+    @staticmethod
+    def _validate_order(fields: PromptFields):
+        types = list(fields.keys())[::-1]
+        for field in Prompt.field_table[fields["TYPE"]]:
+            assert types.pop() == field
+        assert len(types) == 0
+
+
+    def serialize(self):
+        payload: list[str] = []
+
+        for field, value in self.fields.items():
+            if field == "TYPE":
+                assert isinstance(value, str)
+                payload.append(value)
+
+            elif field == "NAME":
+                assert isinstance(value, str)
+                payload.append(value)
 
             else:
-                print('unexpected field type:', field)
-                assert False
+                raise AssertionError(f"unexpected field type {field}")
 
-
-    def serialize(self) -> str:
-        ret = ''
-        for field in self.payload:
-            ret += field.value + '\n'
-        return ret
+        return '\n'.join(payload)
 
     @classmethod
-    def parse(cls, data: str) -> Prompt | None:
-        table: dict[PromptTypes, type[Prompt]] = {
-            PromptTypes.REGISTER: REGISTER,
-            PromptTypes.WELCOME: WELCOME,
-            PromptTypes.NEWBORN: NEWBORN,
-            PromptTypes.PING: PING,
-            PromptTypes.PONG: PONG,
-            PromptTypes.LEFT: LEFT,
-            PromptTypes.GETPEERS: GETPEERS,
-            PromptTypes.PEERS: PEERS,
-            PromptTypes.MERGEREQUEST: MERGEREQUEST,
-            PromptTypes.BORROWREQUEST: BORROWREQUEST,
-        }
+    def deserialize(cls, data: str):
+        msg = PromptFields()
 
-        lines = data.splitlines()
+        lines = data.splitlines()[::-1]
         if len(lines) == 0:
             return None
 
-        msg_type = data.splitlines()[0]
+        if lines[-1] not in Prompt.field_table:
+            print(f'DESERIALIZE: unexpected message type {lines[0]}')
+            return None
 
-        if msg_type in table:
-            return table[msg_type].parse(lines)
-        return None
+        for field in Prompt.field_table[lines[-1]]:
+            if len(lines) == 0:
+                print(f'DESERIALIZE: not enough values in message')
+                return None
+            value = lines.pop()
 
+            if field == "TYPE":
+                msg[field] = value
 
+            elif field == "NAME":
+                msg[field] = value
 
-@final
-class REGISTER(Prompt):
-    prompt_type = PromptTypes.REGISTER
-    fields = [
-        TYPE,
-        NAME,
-    ]
+            else:
+                raise AssertionError(f"unexpected field type {field}")
 
-@final
-class WELCOME(Prompt):
-    prompt_type = PromptTypes.WELCOME
-    fields = [
-        TYPE,
-        KEYRANGE,
-        COUNT,
-        list[PEER],
-        COUNT,
-        list[PEER],
-    ]
+        if len(lines) != 0:
+            print(f'DESERIALIZE: extra values in message')
+            return None
 
-@final
-class NEWBORN(Prompt):
-    prompt_type = PromptTypes.NEWBORN
-    fields = [
-        TYPE,
-        KEYRANGE,
-    ]
-
-@final
-class PING(Prompt):
-    prompt_type = PromptTypes.PING
-    fields = [TYPE]
-
-@final
-class PONG(Prompt):
-    prompt_type = PromptTypes.PONG
-    fields = [
-        TYPE,
-        KEYRANGE,
-    ]
-
-@final
-class LEFT(Prompt):
-    prompt_type = PromptTypes.LEFT
-    fields = [
-        TYPE,
-        KEYRANGE,
-        PEER,
-    ]
-
-@final
-class GETPEERS(Prompt):
-    prompt_type = PromptTypes.GETPEERS
-    fields = [TYPE]
-
-@final
-class PEERS(Prompt):
-    prompt_type = PromptTypes.PEERS
-    fields = [
-        TYPE,
-        KEYRANGE,
-        COUNT,
-        list[PEER],
-    ]
-
-@final
-class MERGEREQUEST(Prompt):
-    prompt_type = PromptTypes.MERGEREQUEST
-    fields = [
-        TYPE,
-        KEYRANGE,
-    ]
-
-@final
-class BORROWREQUEST(Prompt):
-    prompt_type = PromptTypes.BORROWREQUEST
-    fields = [
-        TYPE,
-        KEYRANGE,
-        COUNT,
-        list[PEER],
-    ]
+        return Prompt(msg)
 
