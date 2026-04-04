@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import final
-from collections import OrderedDict
 
 from Server import Address, Server
 from Prompt import Prompt, KeyRange
@@ -16,7 +15,7 @@ class Peer:
     def __init__(self, name: str, port: int):
         self.server = Server(port)
         self.name = name
-        self.keyRange: KeyRange = KeyRange(0, 0)
+        self.keyRange: KeyRange = KeyRange.max()
         self.localPeers: set[Address] = set()
         self.nextPeers: set[Address] = set()
         self.dataStorage: dict[str, str] = dict()
@@ -27,10 +26,10 @@ class Peer:
 
         assert len(bootstrap)
         for address in bootstrap:
-            reg = Prompt(OrderedDict({
-                "TYPE": "REGISTER",
-                "NAME": self.name
-            }))
+            reg = (Prompt()
+                .SET_TYPE("REGISTER")
+                .SET_NAME(self.name)
+            )
             address.send_udp(reg.serialize())
 
             for retry in range(RETRY_COUNT):
@@ -44,16 +43,27 @@ class Peer:
                 break
             else:
                 print(f'FAILED to get WELCOME response from {address}')
-                return 1
-        return 0
+                raise RuntimeError()
 
 
     def run(self):
-        recv = None
-        while recv is None:
+        while True:
             recv = self.server.recv_udp()
             if recv is None:
                 continue
 
             msg = Prompt.deserialize(recv.data)
-            print(msg)
+            if msg is None:
+                continue
+
+            if msg.TYPE == "REGISTER":
+                welcome = (Prompt()
+                    .SET_TYPE("WELCOME")
+                    .SET_KEYRANGE(self.keyRange)
+                    .SET_COUNT(len(self.localPeers))
+                    .SET_LOCAL_PEERS(self.localPeers)
+                    .SET_COUNT(len(self.nextPeers))
+                    .SET_NEXT_PEERS(self.nextPeers)
+                )
+                recv.address.send_udp(welcome.serialize())
+

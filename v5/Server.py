@@ -1,5 +1,6 @@
 
 import socket
+import re
 from typing import final, override
 
 RECEIVE_TIMEOUT = 1
@@ -7,23 +8,32 @@ RECEIVE_TIMEOUT = 1
 @final
 class Address:
     def __init__(self, ip: str, port: int):
+        assert port < 65535
+        _ = socket.inet_aton(ip)
+
         self.ip = ip
         self.port = port
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    @classmethod
-    def from_str(cls, s: str):
-        ip, port = s.split(':')
-        return Address(ip, int(port))
+    @staticmethod
+    def from_str(s: str):
+        if not re.fullmatch(r"\d+[.:]\d+[.:]\d+[.:]\d+:\d+", s):
+            raise ValueError(f"invalid address-port string: {s}")
+        ip, p = s.split(':')
+        try:
+            _ = socket.inet_aton(ip)
+        except socket.error:
+            raise ValueError(f"invalid address: {ip}")
+        port = int(p)
+        if port > 65535:
+            raise ValueError(f"invalid port: {port}")
+        return Address(ip, port)
 
     def addr(self):
         return (self.ip, self.port)
 
-    def set_port(self, port: int):
-        self.server_port = port
-
     def send_udp(self, message: str):
-        print("SENDING:", message.splitlines())
+        print(f"SENDING {self.ip}:{self.port}:", message.splitlines())
         _ = self.soc.sendto(message.encode('utf-8'), self.addr())
 
     @override

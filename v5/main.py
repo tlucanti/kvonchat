@@ -24,8 +24,7 @@ def main():
 
     if args.bootstrap:
         addresses = [Address.from_str(a) for a in args.bootstrap.split(',')]
-        if peer.register(addresses):
-            return 1
+        peer.register(addresses)
 
     peer.run()
 
