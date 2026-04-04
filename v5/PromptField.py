@@ -22,7 +22,7 @@ class PromptTypes(Enum):
 
     # borrow-merge prompts
     MERGEREQUEST = "MERGEREQUEST"
-    BORROWREQUST = "BORROWREQUST"
+    BORROWREQUEST = "BORROWREQUEST"
 
 
 @final

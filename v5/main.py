@@ -20,12 +20,13 @@ def parse_args():
 
 def main():
     args = parse_args()
-    server = Server(args.port)
-    addresses = []
+    peer = Peer(args.name, args.port)
+
     if args.bootstrap:
         addresses = [Address.from_str(a) for a in args.bootstrap.split(',')]
-    peer = Peer(server, args.name)
-    peer.register(addresses)
+        peer.register(addresses)
+    else:
+        peer.bootstrap()
 
 
 if __name__ == '__main__':
