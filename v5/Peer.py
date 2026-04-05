@@ -30,7 +30,7 @@ class Peer:
                 .SET_TYPE("REGISTER")
                 .SET_NAME(self.name)
             )
-            address.send_udp(reg.serialize())
+            self.server.send_udp(address, reg.serialize())
 
             for retry in range(RETRY_COUNT):
                 recv  = self.server.recv_udp()
@@ -60,10 +60,10 @@ class Peer:
                 welcome = (Prompt()
                     .SET_TYPE("WELCOME")
                     .SET_KEYRANGE(self.keyRange)
-                    .SET_COUNT(len(self.localPeers))
+                    .SET_LOCAL_COUNT(len(self.localPeers))
                     .SET_LOCAL_PEERS(self.localPeers)
-                    .SET_COUNT(len(self.nextPeers))
+                    .SET_NEXT_COUNT(len(self.nextPeers))
                     .SET_NEXT_PEERS(self.nextPeers)
                 )
-                recv.address.send_udp(welcome.serialize())
+                self.server.send_udp(recv.address, welcome.serialize())
 

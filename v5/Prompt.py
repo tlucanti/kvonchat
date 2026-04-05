@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import field
 import re
-from typing import final
+from typing import final, override
 from collections import OrderedDict
 
 from Server import Address
@@ -18,6 +19,14 @@ class KeyRange:
     def max():
         return KeyRange(0, KeyRange.MAX_KEY)
 
+    @override
+    def __str__(self):
+        return f"({self.begin}:{self.end})"
+
+    @override
+    def __repr__(self):
+        return f"KeyRange{self.__str__()}"
+
 
 PromptField = str | KeyRange | int | Address | set[Address]
 
@@ -25,7 +34,7 @@ PromptField = str | KeyRange | int | Address | set[Address]
 class Prompt:
     field_table: dict[str, list[str]] = {
         "REGISTER": ["TYPE", "NAME"],
-        "WELCOME": ["TYPE", "KEYRANGE", "COUNT", "LOCAL_PEERS", "COUNT", "NEXT_PEERS"],
+        "WELCOME": ["TYPE", "KEYRANGE", "LOCAL_COUNT", "LOCAL_PEERS", "NEXT_COUNT", "NEXT_PEERS"],
     }
 
     def __init__(self):
@@ -35,6 +44,7 @@ class Prompt:
 
     def serialize(self):
         payload: list[str] = []
+        print(self.values)
 
         for field, value in self.values.items():
             if field == "TYPE":
@@ -49,7 +59,7 @@ class Prompt:
                 assert isinstance(value, KeyRange)
                 payload.append(f"{value.begin} {value.end}")
 
-            elif field == "COUNT":
+            elif field in ("COUNT", "LOCAL_COUNT", "NEXT_COUNT"):
                 assert isinstance(value, int)
                 payload.append(str(value))
 
@@ -71,7 +81,7 @@ class Prompt:
     @classmethod
     def deserialize(cls, data: str):
         msg = Prompt()
-        count = 0
+        count = None
 
         lines = data.splitlines()[::-1]
         if len(lines) == 0:
@@ -83,33 +93,47 @@ class Prompt:
 
         for field in Prompt.field_table[lines[-1]]:
             if len(lines) == 0:
-                print(f'DESERIALIZE: not enough values in message')
-                return None
-            value = lines.pop().strip()
+                if count == 0:
+                    value = None
+                else:
+                    print(f'DESERIALIZE: not enough values in message')
+                    return None
+            else:
+                value = lines.pop().strip()
 
             if field == "TYPE":
+                assert value is not None
                 _ = msg.SET_TYPE(value)
 
             elif field == "NAME":
+                assert value is not None
                 if not re.fullmatch(r"\w+", value):
                     print(f'DESERIALIZE: invalid NAME field')
                 _ = msg.SET_NAME(value)
 
             elif field == "KEYRANGE":
+                assert value is not None
                 if not re.fullmatch(r"\d+ \d+", value):
                     print("DESERIALIZE: invalid KEYRANGE field")
                     return None
                 begin, end = value.split()
                 _ = msg.SET_KEYRANGE(KeyRange(int(begin), int(end)))
 
-            elif field == "COUNT":
-                if not re.fullmatch(r"\d+", value) or int(value) == 0:
-                    print("DESERIALIZE: invalid COUNT field")
+            elif field in ("COUNT", "LOCAL_COUNT", "NEXT_COUNT"):
+                assert value is not None
+                if not re.fullmatch(r"\d+", value):
+                    print(f"DESERIALIZE: invalid {field} field")
                     return None
-                _ = msg.SET_COUNT(int(value))
+                if field == "COUNT":
+                    _ = msg.SET_COUNT(int(value))
+                elif field == "LOCAL_COUNT":
+                    _ = msg.SET_LOCAL_COUNT(int(value))
+                elif field == "NEXT_COUNT":
+                    _ = msg.SET_NEXT_COUNT(int(value))
                 count = int(value)
 
             elif field == "PEER":
+                assert value is not None
                 try:
                     peer = Address.from_str(value)
                 except ValueError:
@@ -118,9 +142,10 @@ class Prompt:
                 _ = msg.SET_PEER(peer)
 
             elif field in ("PEERS", "LOCAL_PEERS", "NEXT_PEERS"):
-                assert count != 0
-                peers: set[Address] = {}
-                lines.append(value)
+                assert count is not None
+                peers: set[Address] = set()
+                if value is not None:
+                    lines.append(value)
 
                 for i in range(count):
                     if len(lines) == 0:
@@ -157,6 +182,7 @@ class Prompt:
         fld = self.fields.pop()
         if fld != field:
             raise AssertionError(f"expected field {fld} got {field}")
+        assert field not in self.values
         self.values[field] = value
         return self
 
@@ -176,6 +202,14 @@ class Prompt:
     def SET_COUNT(self, count: int) -> Prompt:
         assert self.count == 0
         return self._chain("COUNT", count)
+
+    def SET_LOCAL_COUNT(self, count: int) -> Prompt:
+        assert self.count == 0
+        return self._chain("LOCAL_COUNT", count)
+
+    def SET_NEXT_COUNT(self, count: int) -> Prompt:
+        assert self.count == 0
+        return self._chain("NEXT_COUNT", count)
 
     def SET_PEER(self, address: Address) -> Prompt:
         return self._chain("PEER", address)

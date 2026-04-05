@@ -1,4 +1,6 @@
 
+from __future__ import annotations
+
 import socket
 import re
 from typing import final, override
@@ -13,7 +15,16 @@ class Address:
 
         self.ip = ip
         self.port = port
-        self.soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    @override
+    def __eq__(self, other: object):
+        assert isinstance(other, Address)
+        return self.ip == other.ip and self.port == other.port
+
+    @override
+    def __ne__(self, other: object):
+        assert isinstance(other, Address)
+        return self.ip != other.ip or self.port != other.port
 
     @staticmethod
     def from_str(s: str):
@@ -31,10 +42,6 @@ class Address:
 
     def addr(self):
         return (self.ip, self.port)
-
-    def send_udp(self, message: str):
-        print(f"SENDING {self.ip}:{self.port}:", message.splitlines())
-        _ = self.soc.sendto(message.encode('utf-8'), self.addr())
 
     @override
     def __str__(self):
@@ -59,6 +66,10 @@ class Server:
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.soc.bind(('', port))
         self.soc.settimeout(RECEIVE_TIMEOUT)
+
+    def send_udp(self, address: Address, message: str):
+        print(f"SENDING {address}:", message.splitlines())
+        _ = self.soc.sendto(message.encode('utf-8'), address.addr())
 
     def recv_udp(self):
         try:
