@@ -1,5 +1,5 @@
 
-# Kvon Distributed Network Protocol
+# Kvon Distributed Network Topology Protocol
 
 ## registration
 
@@ -153,6 +153,7 @@ LEFT prompt:
  - TYPE: enum: prompt type
  - KEYRANGE: hash, hash: range of keys
  - PEER: str, int: peer ip, peer port
+reply: None
 
 GETPEERS prompt:
  - TYPE: enum: prompt type
