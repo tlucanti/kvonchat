@@ -5,7 +5,6 @@ import socket
 import re
 from typing import final, override
 
-RECEIVE_TIMEOUT = 1
 
 @final
 class Address:
@@ -65,18 +64,19 @@ class Server:
     def __init__(self, port: int):
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.soc.bind(('', port))
-        self.soc.settimeout(RECEIVE_TIMEOUT)
+        self.soc.setblocking(False)
 
     def send_udp(self, address: Address, message: str):
         print(f"SENDING {address}:", message.splitlines())
         _ = self.soc.sendto(message.encode('utf-8'), address.addr())
 
-    def recv_udp(self):
+    def recv_udp(self) -> Recv | None:
+        addr: tuple[str, int]
         try:
-            addr: tuple[str, int]
             bytes, addr = self.soc.recvfrom(4096)
             print(f'GETTING {addr[0]}:{addr[1]}:', bytes.decode().splitlines())
             return Recv((bytes, addr))
-        except TimeoutError as e:
+        except BlockingIOError:
+            print('RECV NONE')
             return None
 

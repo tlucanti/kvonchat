@@ -24,9 +24,10 @@ def main():
 
     if args.bootstrap:
         addresses = [Address.from_str(a) for a in args.bootstrap.split(',')]
-        peer.register(addresses)
+    else:
+        addresses = []
 
-    peer.run()
+    peer.run(addresses)
 
 
 if __name__ == '__main__':
