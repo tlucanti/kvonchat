@@ -1,8 +1,10 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
 import time
-from typing import final, Callable, Any
+from abc import ABC, abstractmethod
+from typing import final, Callable, Any, override
 
 from Server import Address, Server, Recv
 from Prompt import Prompt, KeyRange
@@ -17,14 +19,17 @@ class Dispatcher:
     class Handler:
         def __init__(self,
                      address: Address | None,
-                     prompt: str,
+                     prompt: str | list[str],
                      timeout: bool,
                      recv_cb: Callable[[Address, Prompt], None],
                      timeout_cb: Callable[[Address | None, int, Any], None] | None,
                      retry: int,
                      opaque: Any):
             self.address = address
-            self.prompt = prompt
+            if isinstance(prompt, str):
+                self.prompt = [prompt]
+            else:
+                self.prompt = prompt
             if timeout:
                 self.timeout = time.time() + RECEIVE_TIMEOUT
             else:
@@ -34,11 +39,9 @@ class Dispatcher:
             self.retry = retry
             self.opaque = opaque
 
-        def match(self, address: Address, prompt: Prompt):
-            address_ok = True
-            if self.address is not None:
-                address_ok = (address == self.address)
-            return address_ok and prompt.TYPE == self.prompt
+        @override
+        def __repr__(self):
+            return f"Handler({self.prompt}, {self.address})"
 
 
     #@final
@@ -65,7 +68,7 @@ class Dispatcher:
             return True
         if recv.address != handler.address:
             return False
-        if prompt.TYPE != handler.prompt:
+        if prompt.TYPE not in handler.prompt:
             return False
         return True
 
@@ -106,18 +109,27 @@ class Dispatcher:
         self._step_timeout()
 
 
-@final
-class Peer:
+class PeerCore(ABC):
+    @final
+    class PostArgs:
+        def __init__(self, key: int, value: str, peers: set[Address]):
+            self.key = key
+            self.value = value
+            self.peers = peers
+
     def __init__(self, name: str, port: int):
-        self.name = name
+        self.name: str = name
         self.keyRange: KeyRange = KeyRange.max()
         self.localPeers: set[Address] = set()
         self.nextPeers: set[Address] = set()
         self.dataStorage: dict[str, str] = dict()
 
-        self.server = Server(port)
-        self.dispatcher = Dispatcher()
+        self.server: Server = Server(port)
+        self.dispatcher: Dispatcher = Dispatcher()
 
+    @abstractmethod
+    def new_client(self, name: str, address: Address):
+        ...
 
     def _add_register_handler(self):
         handler = Dispatcher.Handler(
@@ -145,6 +157,9 @@ class Peer:
         self.server.send_udp(address, welcome.serialize())
 
         self._add_register_handler()
+        self.localPeers.add(address)
+
+        self.new_client(msg.NAME, address)
 
 
     def _recv_welcome(self, address: Address, msg: Prompt):
@@ -155,6 +170,8 @@ class Peer:
             self.localPeers.add(peer)
         for peer in msg.NEXT_PEERS:
             self.nextPeers.add(peer)
+
+        self.keyRange = msg.KEYRANGE
 
 
     def _timeout_welcome(self,
@@ -184,16 +201,59 @@ class Peer:
             self._recv_welcome,
             self._timeout_welcome,
             retry + 1,
-            bootstrap
+            bootstrap,
         )
 
         self.dispatcher.add_handler(handler)
         self.server.send_udp(address, reg.serialize())
 
+    def _recv_data(self, address: Address, msg: Prompt, args: PostArgs):
+        if msg.TYPE == "ENOENT":
+            self._timeout_data(None, RETRY_COUNT, args)
+        elif msg.TYPE == "DATA":
+            print("GOT DATA")
+        else:
+            assert False
 
+    def _timeout_data(self,
+                      address: Address | None,
+                      retry: int,
+                      args: PostArgs):
+        if retry >= RETRY_COUNT:
+            if address is not None:
+                print(f'FAILED to POST key to {address}')
+            if len(args.peers):
+                address = args.peers.pop()
+                retry = 0
+            else:
+                raise RuntimeError("FAILED to POST key")
+
+        post = (Prompt()
+            .SET_TYPE("POST")
+            .SET_KEY(args.key)
+            .SET_SIZE(len(args.value))
+            .SET_VALUE(args.value)
+        )
+
+        assert address is not None
+        handler = Dispatcher.Handler(
+                address,
+                ["DATA", "ENOENT"],
+                True,
+                self._recv_data,
+                self._timeout_data,
+                retry + 1,
+                args,
+        )
+
+        self.dispatcher.add_handler(handler)
+        self.server.send_udp(address, post.serialize())
+
+
+class Peer(PeerCore, ABC):
     def run(self, bootstrap: list[Address]):
         if len(bootstrap):
-            self._timeout_welcome(None, RETRY_COUNT, bootstrap)
+            self._timeout_welcome(None, RETRY_COUNT, bootstrap.copy())
         else:
             self._add_register_handler()
 
@@ -201,3 +261,13 @@ class Peer:
             recv = self.server.recv_udp()
             self.dispatcher.step(recv)
             time.sleep(0.1)
+
+    def get(self, key: int) -> str:
+        assert False
+
+    def post(self, key: int, value: str):
+        args = PeerCore.PostArgs(key, value, self.localPeers.copy())
+        self._timeout_data(None, RETRY_COUNT, args)
+
+
+
