@@ -24,3 +24,7 @@ class Client(ClientCore):
     @override
     def run(self, bootstrap: list[Address]):
         super().run(bootstrap)
+
+    def send(self, name: str, message: str):
+        addr = self.get(self.hash(name))
+        address = Address.deserialize(addr)

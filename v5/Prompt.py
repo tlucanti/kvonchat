@@ -152,7 +152,7 @@ class Prompt:
             elif field == "PEER":
                 assert value is not None
                 try:
-                    peer = Address.from_str(value)
+                    peer = Address.deserialize(value)
                 except ValueError:
                     print("DESERIALIZE: invalid PEER field")
                     return None
@@ -171,7 +171,7 @@ class Prompt:
                     value = lines.pop().strip()
 
                     try:
-                        peer = Address.from_str(value)
+                        peer = Address.deserialize(value)
                     except ValueError:
                         print("DESERIALIZE: invalid PEER field")
                         return None

@@ -31,7 +31,7 @@ class Address:
 
     @staticmethod
     def from_str(s: str):
-        if not re.fullmatch(r"\d+[.:]\d+[.:]\d+[.:]\d+:\d+", s):
+        if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+:\d+", s):
             raise ValueError(f"invalid address-port string: {s}")
         ip, p = s.split(':')
         try:
@@ -48,6 +48,11 @@ class Address:
 
     def serialize(self):
         return f"{self.ip} {self.port}"
+
+    @staticmethod
+    def deserialize(s: str) -> Address:
+        ip, port = s.split()
+        return Address(ip, int(port))
 
     @override
     def __str__(self):
