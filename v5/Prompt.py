@@ -35,6 +35,8 @@ class Prompt:
     field_table: dict[str, list[str]] = {
         "REGISTER": ["TYPE", "NAME"],
         "WELCOME": ["TYPE", "KEYRANGE", "LOCAL_COUNT", "LOCAL_PEERS", "NEXT_COUNT", "NEXT_PEERS"],
+
+        "POST": ["TYPE", "KEY", "SIZE", "VALUE"],
     }
 
     def __init__(self):
@@ -64,13 +66,25 @@ class Prompt:
 
             elif field == "PEER":
                 assert isinstance(value, Address)
-                payload.append(f"{value.ip} {value.port}")
+                payload.append(value.serialize())
 
             elif field in ("PEERS", "LOCAL_PEERS", "NEXT_PEERS"):
                 assert isinstance(value, set)
                 for peer in value:
                     assert isinstance(peer, Address)
-                    payload.append(f"{peer.ip} {peer.port}")
+                    payload.append(peer.serialize())
+
+            elif field == "KEY":
+                assert isinstance(value, int)
+                payload.append(hex(value))
+
+            elif field == "SIZE":
+                assert isinstance(value, int)
+                payload.append(str(value))
+
+            elif field == "VALUE":
+                assert isinstance(value, str)
+                payload.append(value)
 
             else:
                 raise AssertionError(f"unexpected field type {field}")
@@ -166,6 +180,24 @@ class Prompt:
                 elif field == "NEXT_PEERS":
                     _ = msg.SET_NEXT_PEERS(peers)
 
+            elif field == "KEY":
+                assert value is not None
+                if not re.fullmatch(r"0x[0-9a-fA-F]+", value):
+                    print(f"DESERIALIZE: invalid {field} field")
+                    return None
+                _ = msg.SET_KEY(int(value, 16))
+
+            elif field == "SIZE":
+                assert value is not None
+                if not re.fullmatch(r"\d+", value):
+                    print(f"DESERIALIZE: invalid {field} field")
+                    return None
+                _ = msg.SET_SIZE(int(value))
+
+            elif field == "VALUE":
+                assert value is not None
+                _ = msg.SET_VALUE(value)
+
             else:
                 raise AssertionError(f"unexpected field type {field}")
 
@@ -227,6 +259,15 @@ class Prompt:
     def SET_NEXT_PEERS(self, addresses: set[Address]) -> Prompt:
         return self._SET_PEERS("NEXT_", addresses)
 
+    def SET_KEY(self, key: int) -> Prompt:
+        return self._chain("KEY", key)
+
+    def SET_SIZE(self, size: int) -> Prompt:
+        return self._chain("SIZE", size)
+
+    def SET_VALUE(self, value: str) -> Prompt:
+        return self._chain("VALUE", value)
+
 
     @property
     def TYPE(self) -> str:
@@ -274,4 +315,22 @@ class Prompt:
     def NEXT_PEERS(self) -> set[Address]:
         ret = self.values["NEXT_PEERS"]
         assert isinstance(ret, set)
+        return ret
+
+    @property
+    def KEY(self) -> int:
+        ret = self.values["KEY"]
+        assert isinstance(ret, int)
+        return ret
+
+    @property
+    def SIZE(self) -> int:
+        ret = self.values["SIZE"]
+        assert isinstance(ret, int)
+        return ret
+
+    @property
+    def VALUE(self) -> str:
+        ret = self.values["VALUE"]
+        assert isinstance(ret, str)
         return ret

@@ -1,7 +1,9 @@
 
+import threading
 from argparse import ArgumentParser
+
 from Server import Server, Address
-from Peer import Peer
+from Client import Client
 
 def parse_args():
     parser = ArgumentParser(description="Distributed chat client")
@@ -20,14 +22,14 @@ def parse_args():
 
 def main():
     args = parse_args()
-    peer = Peer(args.name, args.port)
+    client = Client(args.name, args.port)
 
     if args.bootstrap:
         addresses = [Address.from_str(a) for a in args.bootstrap.split(',')]
     else:
         addresses = []
 
-    peer.run(addresses)
+    client.run(addresses)
 
 
 if __name__ == '__main__':

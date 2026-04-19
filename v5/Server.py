@@ -46,6 +46,9 @@ class Address:
     def addr(self):
         return (self.ip, self.port)
 
+    def serialize(self):
+        return f"{self.ip} {self.port}"
+
     @override
     def __str__(self):
         return f'{self.ip}:{self.port}'
