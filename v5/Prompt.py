@@ -44,7 +44,6 @@ class Prompt:
 
     def serialize(self):
         payload: list[str] = []
-        print(self.values)
 
         for field, value in self.values.items():
             if field == "TYPE":
@@ -266,13 +265,13 @@ class Prompt:
         return ret
 
     @property
-    def LOCAL_PEERS(self) -> list[Address]:
+    def LOCAL_PEERS(self) -> set[Address]:
         ret = self.values["LOCAL_PEERS"]
-        assert isinstance(ret, list)
+        assert isinstance(ret, set)
         return ret
 
     @property
-    def NEXT_PEERS(self) -> list[Address]:
+    def NEXT_PEERS(self) -> set[Address]:
         ret = self.values["NEXT_PEERS"]
-        assert isinstance(ret, list)
+        assert isinstance(ret, set)
         return ret

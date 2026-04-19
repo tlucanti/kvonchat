@@ -16,6 +16,10 @@ class Address:
         self.port = port
 
     @override
+    def __hash__(self):
+        return hash(self.addr())
+
+    @override
     def __eq__(self, other: object):
         assert isinstance(other, Address)
         return self.ip == other.ip and self.port == other.port
@@ -77,6 +81,5 @@ class Server:
             print(f'GETTING {addr[0]}:{addr[1]}:', bytes.decode().splitlines())
             return Recv((bytes, addr))
         except BlockingIOError:
-            print('RECV NONE')
             return None
 

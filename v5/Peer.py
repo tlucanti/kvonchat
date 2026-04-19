@@ -8,7 +8,7 @@ from Server import Address, Server, Recv
 from Prompt import Prompt, KeyRange
 
 RETRY_COUNT = 3
-RECEIVE_TIMEOUT = 1.0
+RECEIVE_TIMEOUT = 3.0
 
 
 @final
@@ -19,7 +19,7 @@ class Dispatcher:
                      address: Address | None,
                      prompt: str,
                      timeout: bool,
-                     recv_cb: Callable[[Address, Prompt, Any], None],
+                     recv_cb: Callable[[Address, Prompt], None],
                      timeout_cb: Callable[[Address | None, int, Any], None] | None,
                      retry: int,
                      opaque: Any):
@@ -59,37 +59,51 @@ class Dispatcher:
     def add_handler(self, handler: Dispatcher.Handler):
         self.handlers.append(handler)
 
-    def step(self, recv: Recv | None):
-
-        def match(handler: Dispatcher.Handler, prompt: Prompt | None, recv: Recv | None):
-            if prompt is None:
-                return False
-            assert recv is not None
-            if handler.address is None:
-                return True
-            if recv.address != handler.address:
-                return False
-            if prompt.TYPE != handler.prompt:
-                return False
+    @staticmethod
+    def _match(handler: Dispatcher.Handler, prompt: Prompt, recv: Recv):
+        if handler.address is None:
             return True
+        if recv.address != handler.address:
+            return False
+        if prompt.TYPE != handler.prompt:
+            return False
+        return True
 
-        t = time.time()
+    def _step_recv(self, recv: Recv):
+        prompt = Prompt.deserialize(recv.data)
+        if prompt is None:
+            return
+
+        iter = self.handlers.copy()
+        self.handlers = []
         copy: list[Dispatcher.Handler] = list()
 
-        prompt = None
-        if recv is not None:
-            prompt = Prompt.deserialize(recv.data)
+        for handler in iter:
+            if self._match(handler, prompt, recv):
+                handler.recv_cb(recv.address, prompt)
+            else:
+                copy.append(handler)
+        self.handlers = copy + self.handlers
 
-        for handler in self.handlers:
+    def _step_timeout(self):
+        t = time.time()
+
+        iter = self.handlers.copy()
+        self.handlers = []
+        copy: list[Dispatcher.Handler] = list()
+
+        for handler in iter:
             if handler.timeout is not None and t > handler.timeout:
                 if handler.timeout_cb is not None:
                     handler.timeout_cb(handler.address, handler.retry, handler.opaque)
-            elif match(handler, prompt, recv):
-                assert recv is not None and prompt is not None
-                handler.recv_cb(recv.address, prompt, handler.opaque)
             else:
                 copy.append(handler)
-        self.handlers = copy
+        self.handlers = copy + self.handlers
+
+    def step(self, recv: Recv | None):
+        if recv is not None:
+            self._step_recv(recv)
+        self._step_timeout()
 
 
 @final
@@ -117,12 +131,30 @@ class Peer:
         )
         self.dispatcher.add_handler(handler)
 
-    def _recv_register(self, address: Address, msg: Prompt, _):
+    def _recv_register(self, address: Address, msg: Prompt):
         assert msg.TYPE == "REGISTER"
-        print(msg)
 
-    def _recv_welcome(self, address: Address, msg: Prompt, _):
+        welcome = (Prompt()
+            .SET_TYPE("WELCOME")
+            .SET_KEYRANGE(self.keyRange)
+            .SET_LOCAL_COUNT(len(self.localPeers))
+            .SET_LOCAL_PEERS(self.localPeers)
+            .SET_NEXT_COUNT(len(self.nextPeers))
+            .SET_NEXT_PEERS(self.nextPeers)
+        )
+        self.server.send_udp(address, welcome.serialize())
+
+        self._add_register_handler()
+
+
+    def _recv_welcome(self, address: Address, msg: Prompt):
         assert msg.TYPE == "WELCOME"
+
+        self.localPeers.add(address)
+        for peer in msg.LOCAL_PEERS:
+            self.localPeers.add(peer)
+        for peer in msg.NEXT_PEERS:
+            self.nextPeers.add(peer)
 
 
     def _timeout_welcome(self,
@@ -147,7 +179,7 @@ class Peer:
         assert address is not None
         handler = Dispatcher.Handler(
             address,
-            "REGISTER",
+            "WELCOME",
             True,
             self._recv_welcome,
             self._timeout_welcome,
