@@ -138,6 +138,36 @@ NEWBORN prompt:
  - KEYRANGE: hash, hash: prompt sender's range of keys
 reply: PONG
 
+## key-value prompt
+
+GET prompt:
+ - TYPE: enum: prompt type
+ - KEY: hash: hash of key, trying to get from peer
+reply: DATA, ENOENT
+
+DATA prompt:
+ - TYPE: enum: prompt type
+ - SIZE: int: number of bytes in VALUE field
+ - VALUE: str: requested value
+reply: None
+
+POST prompt:
+ - TYPE: enum: prompt type
+ - KEY: hash: hash of key, trying to post to peer
+ - SIZE: int: number of bytes in VALUE field
+ - VALUE: str: value to post
+reply: POSTED, ENOENT
+
+POSTED prompt:
+ - TYPE: enum: prompt type
+ - KEY: hash: hash of key, posted to peer
+reply: None
+
+ENOENT prompt:
+ - TYPE: enum: prompt type
+ - KEYRANGE: hash, hash: range of keys of peer
+reply: None
+
 ## keepalive prompts
 
 PING prompt:
