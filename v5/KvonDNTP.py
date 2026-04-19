@@ -1,7 +1,6 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager
 import time
 from abc import ABC, abstractmethod
 from typing import final, Callable, Any, override
@@ -21,7 +20,7 @@ class Dispatcher:
                      address: Address | None,
                      prompt: str | list[str],
                      timeout: bool,
-                     recv_cb: Callable[[Address, Prompt], None],
+                     recv_cb: Callable[[Address, Prompt, Any], None],
                      timeout_cb: Callable[[Address | None, int, Any], None] | None,
                      retry: int,
                      opaque: Any):
@@ -64,10 +63,9 @@ class Dispatcher:
 
     @staticmethod
     def _match(handler: Dispatcher.Handler, prompt: Prompt, recv: Recv):
-        if handler.address is None:
-            return True
-        if recv.address != handler.address:
-            return False
+        if handler.address is not None:
+            if recv.address != handler.address:
+                return False
         if prompt.TYPE not in handler.prompt:
             return False
         return True
@@ -83,7 +81,7 @@ class Dispatcher:
 
         for handler in iter:
             if self._match(handler, prompt, recv):
-                handler.recv_cb(recv.address, prompt)
+                handler.recv_cb(recv.address, prompt, handler.opaque)
             else:
                 copy.append(handler)
         self.handlers = copy + self.handlers
@@ -122,7 +120,7 @@ class PeerCore(ABC):
         self.keyRange: KeyRange = KeyRange.max()
         self.localPeers: set[Address] = set()
         self.nextPeers: set[Address] = set()
-        self.dataStorage: dict[str, str] = dict()
+        self.dataStorage: dict[int, str] = dict()
 
         self.server: Server = Server(port)
         self.dispatcher: Dispatcher = Dispatcher()
@@ -130,6 +128,10 @@ class PeerCore(ABC):
     @abstractmethod
     def new_client(self, name: str, address: Address):
         ...
+
+    def _add_passive_handlers(self):
+        self._add_register_handler()
+        self._add_post_handler()
 
     def _add_register_handler(self):
         handler = Dispatcher.Handler(
@@ -143,7 +145,19 @@ class PeerCore(ABC):
         )
         self.dispatcher.add_handler(handler)
 
-    def _recv_register(self, address: Address, msg: Prompt):
+    def _add_post_handler(self):
+        handler = Dispatcher.Handler(
+            None,
+            "POST",
+            False,
+            self._recv_post,
+            None,
+            0,
+            None
+        )
+        self.dispatcher.add_handler(handler)
+
+    def _recv_register(self, address: Address, msg: Prompt, _):
         assert msg.TYPE == "REGISTER"
 
         welcome = (Prompt()
@@ -162,7 +176,7 @@ class PeerCore(ABC):
         self.new_client(msg.NAME, address)
 
 
-    def _recv_welcome(self, address: Address, msg: Prompt):
+    def _recv_welcome(self, address: Address, msg: Prompt, _):
         assert msg.TYPE == "WELCOME"
 
         self.localPeers.add(address)
@@ -207,15 +221,34 @@ class PeerCore(ABC):
         self.dispatcher.add_handler(handler)
         self.server.send_udp(address, reg.serialize())
 
-    def _recv_data(self, address: Address, msg: Prompt, args: PostArgs):
+
+    def _recv_post(self, address: Address, msg: Prompt, _):
+        assert msg.TYPE == "POST"
+        if self.keyRange.contains(msg.KEY):
+            self.dataStorage[msg.KEY] = msg.VALUE
+            posted = (Prompt()
+                .SET_TYPE("POSTED")
+                .SET_KEY(msg.KEY)
+            )
+            self.server.send_udp(address, posted.serialize())
+        else:
+            enoent = (Prompt()
+                .SET_TYPE("ENOENT")
+                .SET_KEYRANGE(self.keyRange)
+            )
+            self.server.send_udp(address, enoent.serialize())
+
+
+    def _recv_posted(self, address: Address, msg: Prompt, args: PostArgs):
         if msg.TYPE == "ENOENT":
-            self._timeout_data(None, RETRY_COUNT, args)
-        elif msg.TYPE == "DATA":
-            print("GOT DATA")
+            self._timeout_posted(None, RETRY_COUNT, args)
+        elif msg.TYPE == "POSTED":
+            pass
         else:
             assert False
 
-    def _timeout_data(self,
+
+    def _timeout_posted(self,
                       address: Address | None,
                       retry: int,
                       args: PostArgs):
@@ -238,10 +271,10 @@ class PeerCore(ABC):
         assert address is not None
         handler = Dispatcher.Handler(
                 address,
-                ["DATA", "ENOENT"],
+                ["POSTED", "ENOENT"],
                 True,
-                self._recv_data,
-                self._timeout_data,
+                self._recv_posted,
+                self._timeout_posted,
                 retry + 1,
                 args,
         )
@@ -254,8 +287,7 @@ class Peer(PeerCore, ABC):
     def run(self, bootstrap: list[Address]):
         if len(bootstrap):
             self._timeout_welcome(None, RETRY_COUNT, bootstrap.copy())
-        else:
-            self._add_register_handler()
+        self._add_passive_handlers()
 
         while True:
             recv = self.server.recv_udp()
@@ -267,7 +299,7 @@ class Peer(PeerCore, ABC):
 
     def post(self, key: int, value: str):
         args = PeerCore.PostArgs(key, value, self.localPeers.copy())
-        self._timeout_data(None, RETRY_COUNT, args)
+        self._timeout_posted(None, RETRY_COUNT, args)
 
 
 

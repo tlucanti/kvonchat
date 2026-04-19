@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import field
 import re
 from typing import final, override
 from collections import OrderedDict
@@ -14,6 +13,9 @@ class KeyRange:
     def __init__(self, begin: int, end: int):
         self.begin = 0
         self.end = KeyRange.MAX_KEY
+
+    def contains(self, key: int):
+        return key >= self.begin and key < self.end
 
     @staticmethod
     def max():
@@ -37,6 +39,8 @@ class Prompt:
         "WELCOME": ["TYPE", "KEYRANGE", "LOCAL_COUNT", "LOCAL_PEERS", "NEXT_COUNT", "NEXT_PEERS"],
 
         "POST": ["TYPE", "KEY", "SIZE", "VALUE"],
+        "POSTED": ["TYPE", "KEY"],
+        "ENOENT": ["TYPE", "KEYRANGE"],
     }
 
     def __init__(self):

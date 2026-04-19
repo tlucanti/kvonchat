@@ -1,8 +1,7 @@
 
-import threading
 from argparse import ArgumentParser
 
-from Server import Server, Address
+from Server import Address
 from Client import Client
 
 def parse_args():
